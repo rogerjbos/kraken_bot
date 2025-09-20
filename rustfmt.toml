@@ -1,0 +1,83 @@
+# Rust formatting configuration (Nightly Rust with unstable features)
+# Place this file in your project root or workspace root
+# Requires: rustup install nightly && rustup component add rustfmt --toolchain nightly
+# Usage: cargo +nightly fmt
+
+# Enable unstable features
+unstable_features = true
+
+# Basic formatting options
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# Import formatting
+imports_granularity = "Crate"
+imports_layout = "Mixed"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Function and method formatting
+fn_params_layout = "Tall"
+brace_style = "SameLineWhere"
+where_single_line = false
+force_explicit_abi = true
+
+# Control flow formatting
+control_brace_style = "AlwaysSameLine"
+match_block_trailing_comma = false
+match_arm_blocks = true
+match_arm_leading_pipes = "Never"
+
+# Expression formatting
+overflow_delimited_expr = false
+struct_field_align_threshold = 0
+enum_discrim_align_threshold = 0
+chain_width = 60
+single_line_if_else_max_width = 50
+single_line_let_else_max_width = 50
+
+# Comment formatting
+comment_width = 80
+wrap_comments = true
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 100
+normalize_comments = true
+normalize_doc_attributes = true
+
+# String formatting
+format_strings = true
+
+# Macro formatting
+format_macro_matchers = true
+format_macro_bodies = true
+
+# Trailing elements
+trailing_comma = "Vertical"
+trailing_semicolon = true
+
+# Spacing and alignment
+spaces_around_ranges = false
+binop_separator = "Front"
+remove_nested_parens = true
+space_before_colon = false
+space_after_colon = true
+
+# Misc options
+merge_derives = true
+use_small_heuristics = "Default"
+short_array_element_width_threshold = 10
+condense_wildcard_suffixes = true
+force_multiline_blocks = false
+format_generated_files = true
+skip_children = false
+newline_style = "Unix"
+
+# Error handling
+error_on_line_overflow = false
+error_on_unformatted = false
+
+# Advanced nightly features
+hex_literal_case = "Preserve"
+make_backup = false

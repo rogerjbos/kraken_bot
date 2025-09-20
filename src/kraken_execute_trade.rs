@@ -1,22 +1,40 @@
-use crate::kraken_pos::{TradingBot, Symbol};
-
-use kraken_async_rs::response_types::{BuySell, OrderType};
-use kraken_async_rs::wss::{AddOrderParams, FeePreference, Message, WssMessage};
-use kraken_async_rs::request_types::{TimeInForceV2, SelfTradePrevention};
-
-use rust_decimal::Decimal;
-use rust_decimal::prelude::{ToPrimitive, FromPrimitive};
 use std::{error::Error, time::Duration};
+
+use kraken_async_rs::{
+    request_types::{SelfTradePrevention, TimeInForceV2},
+    response_types::{BuySell, OrderType},
+    wss::{AddOrderParams, FeePreference, Message, WssMessage},
+};
+use rust_decimal::{
+    prelude::{FromPrimitive, ToPrimitive},
+    Decimal,
+};
 use tokio::time::{sleep, timeout};
 use tokio_stream::StreamExt;
 
-impl TradingBot {
+use crate::kraken_pos::{Symbol, TradingBot};
 
+impl TradingBot {
+    /// Executes a single trade based on a trading signal (Buy/Sell).
+    ///
+    /// Determines order size and limit price according to symbol configuration,
+    /// submits the order via Kraken WebSocket API, and waits for confirmation.
+    ///
+    /// # Arguments
+    ///
+    /// * `symbol` - `Symbol` struct containing trading parameters (entry/exit amounts).
+    /// * `signal` - `BuySell` enum indicating buy or sell.
+    /// * `private_stream` - Mutable reference to authenticated Kraken WebSocket stream for sending orders and receiving responses.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the trade order is successfully accepted or no action required.
+    /// * `Err(Box<dyn Error>)` if messaging or parsing fails.
     pub async fn execute_trade(
         &self,
         symbol: Symbol,
         signal: BuySell,
-        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<WssMessage>
+        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<WssMessage>,
     ) -> Result<(), Box<dyn Error>> {
         let position = self.get_position(symbol.symbol).await;
         let cash_balance = self.get_position("USD").await;
@@ -24,13 +42,29 @@ impl TradingBot {
 
         let (order_size, price) = match signal {
             BuySell::Buy if cash_balance > symbol.entry_amount && latest_price > 0.0 => {
-                let entry_size = Decimal::from_f64(symbol.entry_amount / latest_price).unwrap().round_dp(2).to_f64().unwrap();
-                let limit_price = Decimal::from_f64(latest_price * 0.995).unwrap().round_dp(2).to_f64().unwrap();
+                let entry_size = Decimal::from_f64(symbol.entry_amount / latest_price)
+                    .unwrap()
+                    .round_dp(2)
+                    .to_f64()
+                    .unwrap();
+                let limit_price = Decimal::from_f64(latest_price * 0.995)
+                    .unwrap()
+                    .round_dp(2)
+                    .to_f64()
+                    .unwrap();
                 (entry_size, limit_price)
             }
             BuySell::Sell if position > 0.0 && latest_price > 0.0 => {
-                let exit_size = Decimal::from_f64(symbol.exit_amount / latest_price).unwrap().round_dp(2).to_f64().unwrap();
-                let limit_price = Decimal::from_f64(latest_price * 1.0).unwrap().round_dp(2).to_f64().unwrap();
+                let exit_size = Decimal::from_f64(symbol.exit_amount / latest_price)
+                    .unwrap()
+                    .round_dp(2)
+                    .to_f64()
+                    .unwrap();
+                let limit_price = Decimal::from_f64(latest_price * 1.0)
+                    .unwrap()
+                    .round_dp(2)
+                    .to_f64()
+                    .unwrap();
                 (position.min(exit_size), limit_price)
             }
             _ => return Ok(()), // No position to sell or funds to buy
@@ -40,7 +74,10 @@ impl TradingBot {
             return Ok(());
         }
 
-        println!("\n\n=====> Executing {} {} at {:.2} (Size: {:.4})", signal, symbol.symbol, price, order_size);
+        println!(
+            "\n\n=====> Executing {} {} at {:.2} (Size: {:.4})",
+            signal, symbol.symbol, price, order_size
+        );
 
         let new_order = AddOrderParams {
             order_type: OrderType::Limit,
@@ -82,7 +119,10 @@ impl TradingBot {
 
         // Send the order
         private_stream.send(&order_message).await?;
-        println!("Order sent for {} req_id={}: {:?}", symbol.symbol, req_id, order_message);
+        println!(
+            "Order sent for {} req_id={}: {:?}",
+            symbol.symbol, req_id, order_message
+        );
 
         // Wait for the actual order response
         let max_attempts = 10;
@@ -90,20 +130,21 @@ impl TradingBot {
             match timeout(Duration::from_secs(2), private_stream.next()).await {
                 Ok(Some(Ok(response))) => {
                     let response_str = format!("{:?}", response);
-                    
+
                     // Check if this is a heartbeat message
                     if response_str.contains("Heartbeat") {
                         continue;
                     }
-                    
+
                     // Check if this is the response to our order (should contain our req_id)
-                    if response_str.contains(&format!("req_id: {}", req_id)) || 
-                    (response_str.contains("add_order") && response_str.contains(symbol.symbol)) {
-                        
+                    if response_str.contains(&format!("req_id: {}", req_id))
+                        || (response_str.contains("add_order")
+                            && response_str.contains(symbol.symbol))
+                    {
                         if response_str.contains("Error: \"Order rejected:") {
                             eprintln!("Order rejected: {}", response_str);
                             println!("Continuing despite order rejection for req_id={}", req_id);
-                            return Ok(()); 
+                            return Ok(());
                         } else if response_str.contains("error: None, success: true") {
                             println!("Order accepted for {}", symbol.symbol);
                             // Add a small delay between orders to avoid rate limiting
@@ -114,15 +155,21 @@ impl TradingBot {
                     } else {
                         println!("Received unrelated message, continuing to wait");
                     }
-                },
+                }
                 _ => {
                     println!("Timeout waiting for response, retrying");
                 }
             }
         }
 
-        eprintln!("No order confirmation received for {} after {} attempts", symbol.symbol, max_attempts);
-        println!("Proceeding without confirmation for order req_id={}", req_id);
+        eprintln!(
+            "No order confirmation received for {} after {} attempts",
+            symbol.symbol, max_attempts
+        );
+        println!(
+            "Proceeding without confirmation for order req_id={}",
+            req_id
+        );
         Ok(())
     }
 }
