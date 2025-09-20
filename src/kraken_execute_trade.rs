@@ -22,13 +22,16 @@ impl TradingBot {
     ///
     /// # Arguments
     ///
-    /// * `symbol` - `Symbol` struct containing trading parameters (entry/exit amounts).
+    /// * `symbol` - `Symbol` struct containing trading parameters (entry/exit
+    ///   amounts).
     /// * `signal` - `BuySell` enum indicating buy or sell.
-    /// * `private_stream` - Mutable reference to authenticated Kraken WebSocket stream for sending orders and receiving responses.
+    /// * `private_stream` - Mutable reference to authenticated Kraken WebSocket
+    ///   stream for sending orders and receiving responses.
     ///
     /// # Returns
     ///
-    /// * `Ok(())` if the trade order is successfully accepted or no action required.
+    /// * `Ok(())` if the trade order is successfully accepted or no action
+    ///   required.
     /// * `Err(Box<dyn Error>)` if messaging or parsing fails.
     pub async fn execute_trade(
         &self,

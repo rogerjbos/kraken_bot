@@ -13,7 +13,8 @@ use tokio_stream::StreamExt;
 use crate::kraken_pos::{PriceHistory, TradingBot};
 
 impl TradingBot {
-    /// Generates a formatted report of trading signals for all configured symbols.
+    /// Generates a formatted report of trading signals for all configured
+    /// symbols.
     ///
     /// Gathers current positions, price data, and calculated returns to build
     /// a human-readable report suitable for sending via Telegram.
@@ -21,8 +22,10 @@ impl TradingBot {
     /// # Returns
     ///
     /// A tuple containing:
-    /// - `HashMap<String, (f64, String)>` mapping each symbol to its return percentage and signal action ("BUY", "SELL", or "HOLD").
-    /// - A `String` containing the formatted report text (with timestamp and portfolio summary).
+    /// - `HashMap<String, (f64, String)>` mapping each symbol to its return
+    ///   percentage and signal action ("BUY", "SELL", or "HOLD").
+    /// - A `String` containing the formatted report text (with timestamp and
+    ///   portfolio summary).
     pub async fn generate_signals_report(&mut self) -> (HashMap<String, (f64, String)>, String) {
         let mut signals = HashMap::new();
         let mut total_value: f64 = 0.0;
@@ -81,21 +84,26 @@ impl TradingBot {
 
     /// Executes the trading strategy end-to-end.
     ///
-    /// - Subscribes to Kraken WebSocket streams for market tickers and account balances.
+    /// - Subscribes to Kraken WebSocket streams for market tickers and account
+    ///   balances.
     /// - Updates internal positions and price history.
     /// - Fetches OHLC data and calculates trading signals.
-    /// - Sends signals report via Telegram and executes trades based on signals.
+    /// - Sends signals report via Telegram and executes trades based on
+    ///   signals.
     ///
     /// # Arguments
     ///
-    /// * `_bot_state` - Shared state for controlling the bot lifecycle (start/stop).
+    /// * `_bot_state` - Shared state for controlling the bot lifecycle
+    ///   (start/stop).
     /// * `bot` - Teloxide `Bot` instance for sending Telegram messages.
-    /// * `chat_id` - Telegram `ChatId` where notifications and reports are sent.
+    /// * `chat_id` - Telegram `ChatId` where notifications and reports are
+    ///   sent.
     ///
     /// # Returns
     ///
     /// * `Ok(())` on successful strategy execution or no actionable signals.
-    /// * `Err(Box<dyn std::error::Error>)` if any underlying API or I/O error occurs.
+    /// * `Err(Box<dyn std::error::Error>)` if any underlying API or I/O error
+    ///   occurs.
     pub async fn execute_strategy(
         &mut self,
         _bot_state: Arc<Mutex<BotState>>,
@@ -195,8 +203,9 @@ impl TradingBot {
 }
 
 // Helper to extract price from ticker messages
-/// Parses a raw ticker WebSocket message to find the "last" price for a specific symbol.
-/// Returns `None` if the message does not correspond to the symbol or parsing fails.
+/// Parses a raw ticker WebSocket message to find the "last" price for a
+/// specific symbol. Returns `None` if the message does not correspond to the
+/// symbol or parsing fails.
 fn extract_price_from_ticker_message(message: &str, symbol: &str) -> Option<f64> {
     // First check if this message is for the symbol we're interested in
     if !message.contains(symbol) {

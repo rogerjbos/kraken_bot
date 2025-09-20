@@ -1,7 +1,6 @@
 use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
-use dotenvy::dotenv;
 use tokio::time;
 
 // mod kraken_execute_simple_strategy;
@@ -17,9 +16,6 @@ use crate::kraken_pos::TradingBot;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    // Load environment variables from .env file
-    dotenv().ok();
-
     let tg_bot = Bot::from_env();
 
     // Read chat ID from environment variable at runtime
