@@ -1,6 +1,6 @@
 # Kraken Trading Bot 🤖📈
 
-A simple Telegram-controlled cryptocurrency trading bot for the Kraken exchange, built with Rust for high performance and safety.  The `symbold_config.json` file allows you to customize trading pairs, thresholds, and strategies.  Please see the example file.
+A simple Telegram-controlled cryptocurrency trading bot for the Kraken exchange, built with Rust for high performance and safety.  The `symbols_config.json` file allows you to customize trading pairs, thresholds, and strategies.  Please see the example file.
 
 ## ✨ Features
 
