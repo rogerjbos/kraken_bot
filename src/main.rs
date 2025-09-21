@@ -17,7 +17,10 @@ use crate::kraken_pos::TradingBot;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let tg_bot = Bot::from_env();
+    let ibkr_bot_token = std::env::var("KRAKEN_TELOXIDE_TOKEN")
+        .expect("KRAKEN_TELOXIDE_TOKEN must be set as environment variable");
+    let tg_bot = Bot::new(ibkr_bot_token);
+
 
     // Read chat ID from environment variable at runtime
     let kraken_bot_chat_id: i64 = std::env::var("KRAKEN_BOT_CHAT_ID")
