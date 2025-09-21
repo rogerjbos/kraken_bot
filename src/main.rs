@@ -2,6 +2,7 @@ use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
 use tokio::time;
+use log;
 
 // mod kraken_execute_simple_strategy;
 mod kraken_execute_strategy;
@@ -71,6 +72,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .send_message(chat_id, "Stopping the Kraken bot for restart...")
                 .await
                 .ok();
+            log::info!("24-hour restart timer triggered");
 
             // Restart the bot
             {
@@ -81,6 +83,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .send_message(chat_id, "Restarting the Kraken bot...")
                 .await
                 .ok();
+            log::info!("Bot restart completed");
         }
     });
 
