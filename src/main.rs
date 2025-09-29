@@ -1,8 +1,8 @@
 use std::{error::Error, sync::Arc};
 
 use chrono::Utc;
-use tokio::time;
 use log;
+use tokio::time;
 
 // mod kraken_execute_simple_strategy;
 mod kraken_execute_strategy;
@@ -21,7 +21,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .expect("KRAKEN_TELOXIDE_TOKEN must be set as environment variable");
     let tg_bot = Bot::new(ibkr_bot_token);
 
-
     // Read chat ID from environment variable at runtime
     let kraken_bot_chat_id: i64 = std::env::var("KRAKEN_BOT_CHAT_ID")
         .expect("KRAKEN_BOT_CHAT_ID must be set in .env file")
@@ -38,10 +37,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         ..Default::default()
     }));
 
-    // Create telegram bot handler
-    let telegram_handler = TelegramBotHandler::<TradingBot>::new(
-        "/Users/rogerbos/rust_home/kraken_bot/symbols_config.json".to_string(),
-    );
+    // Create telegram bot handler and request channel
+    let (telegram_handler, request_rx) = TelegramBotHandler::new();
 
     // Spawn a task to restart the bot every 24 hours at midnight UTC
     let bot_state_clone = Arc::clone(&kraken_bot_state);
@@ -93,7 +90,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // Start the Kraken bot automatically
     let bot_state_clone = Arc::clone(&kraken_bot_state);
     let tg_bot_clone = tg_bot.clone();
-    TelegramBotHandler::<TradingBot>::init_and_run_bot(bot_state_clone, tg_bot_clone, chat_id, 300)
+    TelegramBotHandler::init_and_run_bot::<TradingBot>(
+        bot_state_clone,
+        tg_bot_clone,
+        chat_id,
+        request_rx,
+    )
         .await?;
 
     let cloned_tg_bot = tg_bot.clone();
