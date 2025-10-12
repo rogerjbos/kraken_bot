@@ -3,7 +3,7 @@ use std::{error::Error, time::Duration};
 use kraken_async_rs::{
     request_types::{SelfTradePrevention, TimeInForceV2},
     response_types::{BuySell, OrderType},
-    wss::{AddOrderParams, FeePreference, Message, WssMessage},
+    wss::{AddOrderParams, FeePreference, Message},
 };
 use rust_decimal::{
     prelude::{FromPrimitive, ToPrimitive},
@@ -37,20 +37,32 @@ impl TradingBot {
         &self,
         symbol: Symbol,
         signal: BuySell,
-        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<WssMessage>,
+        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<serde_json::Value>,
     ) -> Result<(), Box<dyn Error>> {
         let position = self.get_position(symbol.symbol).await;
         let cash_balance = self.get_position("USD").await;
         let latest_price = self.get_real_time_price(symbol.symbol).await;
 
-        let (order_size, price) = match signal {
+        let (mut order_size, price) = match signal {
             BuySell::Buy if cash_balance > symbol.entry_amount && latest_price > 0.0 => {
-                let entry_size = Decimal::from_f64(symbol.entry_amount / latest_price)
+                let mut entry_size = Decimal::from_f64(symbol.entry_amount / latest_price)
                     .unwrap()
                     .round_dp(2)
                     .to_f64()
                     .unwrap();
-                let limit_price = Decimal::from_f64(latest_price * 0.995)
+                
+                // Adjust order size based on return percentage for BUY orders
+                if let Some(return_pct) = self.calculate_return(symbol.symbol) {
+                    if return_pct > -0.20 {
+                        entry_size *= 4.0;
+                    } else if return_pct > -0.15 {
+                        entry_size *= 3.0;
+                    } else if return_pct > -0.10 {
+                        entry_size *= 2.0;
+                    }
+                }
+                
+                let limit_price = Decimal::from_f64(latest_price * 1.005)
                     .unwrap()
                     .round_dp(2)
                     .to_f64()
@@ -132,23 +144,23 @@ impl TradingBot {
         for _ in 0..max_attempts {
             match timeout(Duration::from_secs(2), private_stream.next()).await {
                 Ok(Some(Ok(response))) => {
-                    let response_str = format!("{:?}", response);
+                    let response_str = response.to_string();
 
                     // Check if this is a heartbeat message
-                    if response_str.contains("Heartbeat") {
+                    if response_str.contains("Heartbeat") || response_str.contains("heartbeat") {
                         continue;
                     }
 
                     // Check if this is the response to our order (should contain our req_id)
-                    if response_str.contains(&format!("req_id: {}", req_id))
+                    if response_str.contains(&format!("req_id\": {}", req_id))
                         || (response_str.contains("add_order")
                             && response_str.contains(symbol.symbol))
                     {
-                        if response_str.contains("Error: \"Order rejected:") {
+                        if response_str.contains("Order rejected") || response_str.contains("error") {
                             eprintln!("Order rejected: {}", response_str);
                             println!("Continuing despite order rejection for req_id={}", req_id);
                             return Ok(());
-                        } else if response_str.contains("error: None, success: true") {
+                        } else if response_str.contains("success") || response_str.contains("accepted") {
                             println!("Order accepted for {}", symbol.symbol);
                             // Add a small delay between orders to avoid rate limiting
                             sleep(Duration::from_secs(1)).await;

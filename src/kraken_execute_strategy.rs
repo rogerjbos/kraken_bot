@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use chrono::Local;
 use kraken_async_rs::{
     response_types::BuySell,
-    wss::{Message, TickerSubscription, WssMessage},
+    wss::{Message, TickerSubscription},
 };
 use telegram_bot::{send_telegram_notification, BotState, NotificationLevel};
 use teloxide::{prelude::*, types::ChatId};
@@ -110,8 +110,15 @@ impl TradingBot {
         bot: Bot,
         chat_id: ChatId,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut private_stream = self.client.connect_auth::<WssMessage>().await?;
-        let mut public_stream = self.client.connect::<WssMessage>().await?;
+        let mut private_stream = match self.client.connect_auth::<serde_json::Value>().await {
+            Ok(stream) => stream,
+            Err(e) => return Err(e.into()),
+        };
+        
+        let mut public_stream = match self.client.connect::<serde_json::Value>().await {
+            Ok(stream) => stream,
+            Err(e) => return Err(e.into()),
+        };
 
         // Subscribe to real-time ticker data
         let ticker_params = TickerSubscription::new(self.symbols_config.keys().cloned().collect());
@@ -124,20 +131,26 @@ impl TradingBot {
         let symbols_config_clone = self.symbols_config.clone();
 
         tokio::spawn(async move {
-            while let Some(Ok(message)) = public_stream.next().await {
-                // Debug the message to understand its structure
-                let message_str = format!("{:?}", message);
+            while let Some(message_result) = public_stream.next().await {
+                match message_result {
+                    Ok(message) => {
+                        let message_str = message.to_string();
 
-                // Check if this is a ticker message
-                if message_str.contains("Ticker") {
-                    // Extract ticker data for each symbol
-                    for symbol_config in symbols_config_clone.values() {
-                        let symbol = &symbol_config.symbol;
-                        if let Some(price) = extract_price_from_ticker_message(&message_str, symbol)
-                        {
-                            let mut prices = prices_clone.lock().await;
-                            prices.insert(symbol.to_string(), price);
+                        // Check if this is a ticker message
+                        if message_str.contains("ticker") || message_str.contains("Ticker") {
+                            // Extract ticker data for each symbol
+                            for symbol_config in symbols_config_clone.values() {
+                                let symbol = &symbol_config.symbol;
+                                if let Some(price) = extract_price_from_ticker_message(&message_str, symbol) {
+                                    let mut prices = prices_clone.lock().await;
+                                    prices.insert(symbol.to_string(), price);
+                                }
+                            }
                         }
+                    }
+                    Err(e) => {
+                        eprintln!("Error receiving message: {}", e);
+                        continue;
                     }
                 }
             }
@@ -207,18 +220,25 @@ impl TradingBot {
 /// specific symbol. Returns `None` if the message does not correspond to the
 /// symbol or parsing fails.
 fn extract_price_from_ticker_message(message: &str, symbol: &str) -> Option<f64> {
-    // First check if this message is for the symbol we're interested in
-    if !message.contains(symbol) {
-        return None;
-    }
-
-    // Extract the "last" price field directly
-    if let Some(last_idx) = message.find("last:") {
-        let start_idx = last_idx + "last:".len();
-        // Find the next comma or closing delimiter after "last:"
-        if let Some(end_idx) = message[start_idx..].find(|c| c == ',' || c == '}') {
-            let price_str = &message[start_idx..start_idx + end_idx].trim();
-            return price_str.parse::<f64>().ok();
+    // Parse the JSON message
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+        // Check if this is a ticker message
+        if let Some(channel) = json_value.get("channel").and_then(|c| c.as_str()) {
+            if channel == "ticker" {
+                // Extract data array
+                if let Some(data) = json_value.get("data").and_then(|d| d.as_array()) {
+                    for item in data {
+                        if let Some(msg_symbol) = item.get("symbol").and_then(|s| s.as_str()) {
+                            if msg_symbol == symbol {
+                                // Extract the "last" price
+                                if let Some(last_price) = item.get("last").and_then(|l| l.as_f64()) {
+                                    return Some(last_price);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     None

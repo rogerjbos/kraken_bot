@@ -1,9 +1,5 @@
 use std::{error::Error, sync::Arc};
 
-use chrono::Utc;
-use tokio::time;
-use log;
-
 // mod kraken_execute_simple_strategy;
 mod kraken_execute_strategy;
 mod kraken_execute_trade;
@@ -15,12 +11,13 @@ use tokio::sync::Mutex;
 
 use crate::kraken_pos::TradingBot;
 
+pub const INTERVAL_SECONDS: u64 = 30; // How frequently to run the strategy
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let ibkr_bot_token = std::env::var("KRAKEN_TELOXIDE_TOKEN")
         .expect("KRAKEN_TELOXIDE_TOKEN must be set as environment variable");
     let tg_bot = Bot::new(ibkr_bot_token);
-
 
     // Read chat ID from environment variable at runtime
     let kraken_bot_chat_id: i64 = std::env::var("KRAKEN_BOT_CHAT_ID")
@@ -39,65 +36,45 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     }));
 
     // Create telegram bot handler
-    let telegram_handler = TelegramBotHandler::<TradingBot>::new(
-        "/Users/rogerbos/rust_home/kraken_bot/symbols_config.json".to_string(),
-    );
+    let (telegram_handler, _request_rx) = TelegramBotHandler::new();
+    let telegram_handler = Arc::new(Mutex::new(telegram_handler));
 
-    // Spawn a task to restart the bot every 24 hours at midnight UTC
+    // Spawn the trading bot task
     let bot_state_clone = Arc::clone(&kraken_bot_state);
     let tg_bot_clone = tg_bot.clone();
     tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(INTERVAL_SECONDS));
         loop {
-            // Calculate the duration until the next midnight UTC
-            let now = Utc::now();
-            let next_midnight = now
-                .date_naive()
-                .succ_opt() // Get the next day
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .expect("valid time"); // Set time to midnight
-
-            // Convert `now` to NaiveDateTime
-            let now_naive = now.naive_utc();
-
-            // Calculate the duration until midnight
-            let duration_until_midnight = (next_midnight - now_naive).to_std().unwrap();
-
-            // Wait until midnight UTC
-            time::sleep(duration_until_midnight).await;
-
-            // Stop the bot
-            {
-                let mut state = bot_state_clone.lock().await;
-                state.is_running = false;
+            interval.tick().await;
+            
+            let is_running = {
+                let state = bot_state_clone.lock().await;
+                state.is_running
+            };
+            
+            if is_running {
+                // Create and run the trading bot
+                match TradingBot::new(INTERVAL_SECONDS).await {
+                    Ok(mut bot) => {
+                        if let Err(e) = bot.execute_strategy(
+                            Arc::clone(&bot_state_clone),
+                            tg_bot_clone.clone(),
+                            chat_id,
+                        ).await {
+                            eprintln!("Error executing strategy: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error creating trading bot: {}", e);
+                    }
+                }
             }
-            tg_bot_clone
-                .send_message(chat_id, "Stopping the Kraken bot for restart...")
-                .await
-                .ok();
-            log::info!("24-hour restart timer triggered");
-
-            // Restart the bot
-            {
-                let mut state = bot_state_clone.lock().await;
-                state.is_running = true;
-            }
-            tg_bot_clone
-                .send_message(chat_id, "Restarting the Kraken bot...")
-                .await
-                .ok();
-            log::info!("Bot restart completed");
         }
     });
 
-    // Start the Kraken bot automatically
-    let bot_state_clone = Arc::clone(&kraken_bot_state);
-    let tg_bot_clone = tg_bot.clone();
-    TelegramBotHandler::<TradingBot>::init_and_run_bot(bot_state_clone, tg_bot_clone, chat_id, 300)
-        .await?;
-
+    // Set up Telegram command handling
     let cloned_tg_bot = tg_bot.clone();
-    let cloned_handler = Arc::new(Mutex::new(telegram_handler));
+    let cloned_handler = Arc::clone(&telegram_handler);
 
     teloxide::repl_with_listener(
         tg_bot.clone(),

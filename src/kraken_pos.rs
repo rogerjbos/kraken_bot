@@ -27,7 +27,6 @@ use tracing::info;
 
 pub const KRAKEN_KEY: &str = "KRAKEN_KEY_SOLO";
 pub const KRAKEN_SECRET: &str = "KRAKEN_SECRET_SOLO";
-pub const INTERVAL_SECONDS: u64 = 300; // How often to run the strategy
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Symbol {
@@ -195,7 +194,7 @@ impl TradingBot {
     /// - Kraken API credentials are invalid or missing
     /// - WebSocket connection cannot be established
     /// - Symbol configuration file cannot be read
-    pub async fn new() -> Result<Self, Box<dyn Error>> {
+    pub async fn new(_interval_seconds: u64) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let secrets_provider: Box<Arc<Mutex<dyn SecretsProvider>>> = Box::new(Arc::new(
             Mutex::new(EnvSecretsProvider::new(KRAKEN_KEY, KRAKEN_SECRET)),
         ));
@@ -259,7 +258,7 @@ impl TradingBot {
     /// - The file does not exist or cannot be read
     /// - The JSON format is invalid
     /// - Required fields are missing from the configuration
-    async fn read_symbols_config(file_path: &str) -> Result<Vec<SymbolConfig>, Box<dyn Error>> {
+    async fn read_symbols_config(file_path: &str) -> Result<Vec<SymbolConfig>, Box<dyn Error + Send + Sync>> {
         let content = tokio::fs::read_to_string(file_path).await?;
         let symbols_config: Vec<SymbolConfig> = serde_json::from_str(&content)?;
         Ok(symbols_config)
@@ -290,7 +289,7 @@ impl TradingBot {
     /// WebSocket stream.
     pub async fn update_positions(
         &self,
-        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<WssMessage>,
+        private_stream: &mut kraken_async_rs::wss::KrakenMessageStream<serde_json::Value>,
     ) {
         // Subscribe to balances
         let balances_params = BalancesSubscription::new(self.token.clone());
@@ -306,29 +305,13 @@ impl TradingBot {
         while attempts < max_attempts {
             match timeout(Duration::from_secs(5), private_stream.next()).await {
                 Ok(Some(Ok(message))) => {
-                    let message_str = format!("{:?}", message);
-
-                    // Check if this is a balance message (containing asset information)
-                    if message_str.contains("asset:") || message_str.contains("Balance {") {
-                        // Process USD balance
-                        if let Some(usd_balance) = Self::extract_asset_balance(&message_str, &"USD")
-                        {
-                            let mut positions = self.positions.lock().await;
-                            positions.insert("USD".to_string(), usd_balance);
+                    // Try to parse balance data from JSON message
+                    if let Some(balances) = Self::extract_balances_from_json(&message) {
+                        let mut positions = self.positions.lock().await;
+                        for (asset, balance) in balances {
+                            positions.insert(asset, balance);
                         }
-
-                        // Process balances for trading symbols
-                        for symbol_config in self.symbols_config.values() {
-                            let symbol = &symbol_config.symbol;
-                            let base_currency = symbol.split('/').next().unwrap();
-                            if let Some(balance) = Self::extract_asset_balance(&message_str, symbol)
-                            {
-                                let mut positions = self.positions.lock().await;
-                                positions.insert(base_currency.to_string(), balance);
-                            }
-                        }
-                        break; // We got what we needed, so break out of the
-                               // loop
+                        break; // We got what we needed, so break out of the loop
                     }
                 }
                 Ok(Some(Err(e))) => {
@@ -354,40 +337,55 @@ impl TradingBot {
         }
     }
 
-    /// Extracts the balance for a specific asset from a WebSocket message
-    /// string.
+    /// Extracts balance information from a JSON WebSocket message.
     ///
-    /// Parses the incoming WebSocket message to find the balance information
-    /// for the base currency of the given trading symbol.
+    /// Parses Kraken balance WebSocket messages to extract asset balances.
+    /// Expected JSON structure:
+    /// ```json
+    /// {
+    ///   "channel": "balances",
+    ///   "data": [
+    ///     {"asset": "BTC", "balance": "1.23456789"},
+    ///     {"asset": "USD", "balance": "1000.00"}
+    ///   ]
+    /// }
+    /// ```
     ///
     /// # Arguments
     ///
-    /// * `message_str` - Raw WebSocket message string from Kraken
-    /// * `symbol` - Trading symbol (e.g., "BTC/USD") to extract balance for
+    /// * `message` - The parsed JSON message from the WebSocket stream
     ///
     /// # Returns
     ///
-    /// * `Some(f64)` - The balance amount if found and parsed successfully
-    /// * `None` - If the asset is not found in the message or parsing fails
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// let balance = TradingBot::extract_asset_balance(message, "BTC/USD");
-    /// // Returns the BTC balance from the message
-    /// ```
-    fn extract_asset_balance(message_str: &str, symbol: &str) -> Option<f64> {
-        let base_currency = symbol.split('/').next().unwrap();
-        let asset = format!("asset: \"{}\"", base_currency);
-        if let Some(usd_idx) = message_str.find(&asset) {
-            if let Some(balance_idx) = message_str[usd_idx..].find("balance: ") {
-                let balance_start = usd_idx + balance_idx + "balance: ".len();
-                if let Some(balance_end) =
-                    message_str[balance_start..].find(|c| c == ',' || c == '}')
-                {
-                    let balance_str =
-                        &message_str[balance_start..balance_start + balance_end].trim();
-                    return balance_str.parse::<f64>().ok();
+    /// * `Some(HashMap<String, f64>)` - Map of asset symbols to their balances
+    /// * `None` - If the message is not a balance message or parsing fails
+    fn extract_balances_from_json(message: &serde_json::Value) -> Option<HashMap<String, f64>> {
+        // Check if this is a balances channel message
+        if let Some(channel) = message.get("channel").and_then(|c| c.as_str()) {
+            if channel == "balances" {
+                let mut balances = HashMap::new();
+                
+                if let Some(data) = message.get("data").and_then(|d| d.as_array()) {
+                    for balance_item in data {
+                        if let (Some(asset), Some(balance)) = (
+                            balance_item.get("asset").and_then(|a| a.as_str()),
+                            balance_item.get("balance")
+                        ) {
+                            // Try to get balance as number first, then as string
+                            let balance_value = if let Some(b) = balance.as_f64() {
+                                b
+                            } else if let Some(b_str) = balance.as_str() {
+                                b_str.parse::<f64>().unwrap_or(0.0)
+                            } else {
+                                0.0
+                            };
+                            balances.insert(asset.to_string(), balance_value);
+                        }
+                    }
+                }
+                
+                if !balances.is_empty() {
+                    return Some(balances);
                 }
             }
         }
@@ -871,11 +869,11 @@ impl TradingBot {
 impl TelegramTradingBot for TradingBot {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
-    async fn new() -> Result<Self, Self::Error>
+    async fn new(interval_seconds: u64) -> Result<Self, Self::Error>
     where
         Self: Sized,
     {
-        Self::new()
+        Self::new(interval_seconds)
             .await
             .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
                 Box::new(BotError(format!("{}", e)))
@@ -895,38 +893,4 @@ impl TelegramTradingBot for TradingBot {
             })
     }
 
-    async fn get_status(&self) -> String {
-        // Implement status reporting for the Kraken bot
-        let positions = self.positions.lock().await;
-        let prices = self.real_time_prices.lock().await;
-
-        let mut status = String::from("Kraken Trading Bot Status:\n\n");
-
-        status.push_str("Positions:\n");
-        for (symbol, position) in positions.iter() {
-            let current_price = prices.get(symbol).unwrap_or(&0.0);
-            status.push_str(&format!(
-                "  {}: {:.4} units @ ${:.2}\n",
-                symbol, position, current_price
-            ));
-        }
-
-        status.push_str("\nTracked Symbols:\n");
-        for (symbol, config) in &self.symbols_config {
-            status.push_str(&format!(
-                "  {}: Entry ${:.2}, Exit ${:.2}\n",
-                symbol, config.entry_amount, config.exit_amount
-            ));
-        }
-
-        status
-    }
-
-    fn get_config_path(&self) -> &str {
-        "/Users/rogerbos/rust_home/kraken_bot/symbols_config.json"
-    }
-
-    fn get_interval_seconds(&self) -> u64 {
-        INTERVAL_SECONDS
-    }
 }
