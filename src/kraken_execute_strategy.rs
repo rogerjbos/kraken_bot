@@ -36,6 +36,8 @@ impl TradingBot {
         // Clone symbols_config to avoid immutable borrowing conflicts
         let symbols_config_clone = self.symbols_config.clone();
 
+        // Collect all symbol data first
+        let mut symbol_data = Vec::new();
         for symbol_config in symbols_config_clone.values() {
             let symbol = &symbol_config.symbol;
             let position = self.get_position(symbol).await;
@@ -46,10 +48,19 @@ impl TradingBot {
             let value = position * price;
             total_value += value;
 
+            symbol_data.push((symbol.to_string(), position, signal.clone(), return_pct, price, m, value));
+            signals.insert(symbol.to_string(), (return_pct, signal));
+        }
+
+        // Sort by position value (largest to smallest) - dollar value, not quantity
+        symbol_data.sort_by(|a, b| a.6.total_cmp(&b.6).reverse());
+
+        // Generate report with sorted data
+        for (symbol, position, signal, return_pct, price, m, value) in symbol_data {
             // Add emojis based on signal and return percentage
             let signal_emoji = match signal.as_str() {
-                "BUY" => "<b>B</b>",  // 🟢
-                "SELL" => "<b>S</b>", // 🔴
+                "BUY" => "🟢",  // 🟢 <b>B</b>
+                "SELL" => "🔴", // 🔴 <b>S</b>
                 _ => "H",
             };
 
@@ -59,7 +70,7 @@ impl TradingBot {
             let signal_emoji_str = format!("{:<1}", signal_emoji);
             let return_pct_str = format!("{:>4.1}%", return_pct);
             let price_str = format!("{:>9.2}", price);
-            let position_str = format!("{:>6.0}", position);
+            let position_str = format!("{:>8.1}", position);
             let value_str = format!("{:>7.0}$", value);
             let m_str = format!("{:>4.1}x", m);
 
@@ -70,7 +81,6 @@ impl TradingBot {
 
             println!("{}", line);
             report.push_str(&line);
-            signals.insert(symbol.to_string(), (return_pct, signal));
         }
 
         // Add portfolio summary

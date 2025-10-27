@@ -4,13 +4,15 @@
     "entry_threshold": -2.5,
     "exit_amount": 250.0,
     "exit_threshold": 2.0,
-    "symbol": "ETH/USD"
+    "symbol": "ETH/USD",
+    "max_amount": 1000.0
   },
   {
     "entry_amount": 500.0,
     "entry_threshold": -2.5,
     "exit_amount": 250.0,
     "exit_threshold": 2.0,
-    "symbol": "SOL/USD"
-  },
+    "symbol": "SOL/USD",
+    "max_amount": 1000.0
+  }
 ]

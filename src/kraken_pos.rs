@@ -35,6 +35,7 @@ pub struct Symbol {
     pub exit_amount: f64,
     pub entry_threshold: f64,
     pub exit_threshold: f64,
+    pub max_amount: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,7 @@ pub struct SymbolConfig {
     pub exit_amount: f64,
     pub entry_threshold: f64,
     pub exit_threshold: f64,
+    pub max_amount: f64,
 }
 
 /// Represents OHLC (Open, High, Low, Close) data for a trading symbol.
@@ -223,6 +225,7 @@ impl TradingBot {
                     exit_amount: symbol_config.exit_amount,
                     entry_threshold: symbol_config.entry_threshold,
                     exit_threshold: symbol_config.exit_threshold,
+                    max_amount: symbol_config.max_amount,
                 },
             );
         }
@@ -829,6 +832,9 @@ impl TradingBot {
     /// ```
     pub async fn generate_signal(&mut self, symbol: &str) -> String {
         let current_position = self.get_position(symbol).await;
+        let current_price = self.get_real_time_price(symbol).await;
+        let current_position_value = current_position * current_price;
+        
         let symbol_config = self.symbols_config.get(symbol).unwrap_or_else(|| {
             eprintln!("Symbol {} not found in symbols_config", symbol);
             self.symbols_config.values().next().unwrap()
@@ -844,7 +850,7 @@ impl TradingBot {
 
         if let Some(return_pct) = history.calculate_return() {
             match (return_pct, current_position) {
-                (r, _) if r < entry => {
+                (r, _) if r < entry && current_position_value < symbol_config.max_amount => {
                     self.increase_mult(symbol).await;
                     "BUY".to_string()
                 }

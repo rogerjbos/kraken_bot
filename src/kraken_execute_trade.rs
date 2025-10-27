@@ -43,7 +43,7 @@ impl TradingBot {
         let cash_balance = self.get_position("USD").await;
         let latest_price = self.get_real_time_price(symbol.symbol).await;
 
-        let (mut order_size, price) = match signal {
+        let (order_size, price) = match signal {
             BuySell::Buy if cash_balance > symbol.entry_amount && latest_price > 0.0 => {
                 let mut entry_size = Decimal::from_f64(symbol.entry_amount / latest_price)
                     .unwrap()

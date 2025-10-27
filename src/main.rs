@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 use crate::kraken_pos::TradingBot;
 
-pub const INTERVAL_SECONDS: u64 = 30; // How frequently to run the strategy
+pub const INTERVAL_SECONDS: u64 = 300; // How frequently to run the strategy
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
