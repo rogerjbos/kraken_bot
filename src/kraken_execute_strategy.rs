@@ -56,31 +56,39 @@ impl TradingBot {
         symbol_data.sort_by(|a, b| a.6.total_cmp(&b.6).reverse());
 
         // Generate report with sorted data
-        for (symbol, position, signal, return_pct, price, m, value) in symbol_data {
-            // Add emojis based on signal and return percentage
-            let signal_emoji = match signal.as_str() {
-                "BUY" => "🟢",  // 🟢 <b>B</b>
-                "SELL" => "🔴", // 🔴 <b>S</b>
-                _ => "H",
-            };
+            for (symbol, position, signal, return_pct, price, m, value) in symbol_data {
+                // Signal as a separate column: B/S/H
+                let signal_letter = match signal.as_str() {
+                    "BUY" => "🟢",
+                    "SELL" => "🔴",
+                    _ => "H",
+                };
 
-            // Manually pad the fields
-            let base_currency = symbol.split('/').next().unwrap();
-            let id = format!("{:<4}", base_currency.chars().take(4).collect::<String>());
-            let signal_emoji_str = format!("{:<1}", signal_emoji);
-            let return_pct_str = format!("{:>4.1}%", return_pct);
-            let price_str = format!("{:>9.2}", price);
-            let position_str = format!("{:>8.1}", position);
-            let value_str = format!("{:>7.0}$", value);
-            let m_str = format!("{:>4.1}x", m);
+                // Manually pad the fields for classic alignment
+                let base_currency = symbol.split('/').next().unwrap();
+                let id = format!("{:<4}", base_currency.chars().take(4).collect::<String>());
+                // Symbol: left-justified, 4 chars
+                let symbol_str = format!("{:<4}", id.trim());
+                // Signal: right-justified, 2 chars
+                let signal_str = format!("{:>2}", signal_letter);
+                // Percentage: right-justified, 6 chars, always show sign
+                let return_pct_str = format!("{:>6.1}%", return_pct);
+                // Price: right-justified, 10 chars, 2 decimals
+                let price_str = format!("{:>10.2}", price);
+                // Position: right-justified, 9 chars, 1 decimal
+                let position_str = format!("{:>9.1}", position);
+                // Value: right-justified, 7 chars, integer, dollar sign
+                let value_str = format!("{:>7.0}$", value);
+                // Multiplier: right-justified, 5 chars, 1 decimal, x
+                let m_str = format!("{:>5.1}x", m);
 
-            let line = format!(
-                "{} {} {} {} {} {} {}\n",
-                id, signal_emoji_str, return_pct_str, price_str, position_str, value_str, m_str
-            );
+                let line = format!(
+                    "{}{}{}{}{}{}{}\n",
+                    symbol_str, signal_str, return_pct_str, price_str, position_str, value_str, m_str
+                );
 
-            println!("{}", line);
-            report.push_str(&line);
+                println!("{}", line);
+                report.push_str(&line);
         }
 
         // Add portfolio summary
