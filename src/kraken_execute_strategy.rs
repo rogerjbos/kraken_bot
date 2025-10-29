@@ -32,6 +32,7 @@ impl TradingBot {
 
         let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
         let mut report = String::from(format!("📊 Kraken Bot - {timestamp}\n\n"));
+        report.push_str("Token S   %Chg     Price      Pos   Value  Mult\n");
 
         // Clone symbols_config to avoid immutable borrowing conflicts
         let symbols_config_clone = self.symbols_config.clone();
@@ -56,15 +57,13 @@ impl TradingBot {
         symbol_data.sort_by(|a, b| a.6.total_cmp(&b.6).reverse());
 
         // Generate report with sorted data
-            for (symbol, position, signal, return_pct, price, m, value) in symbol_data {
-                // Signal as a separate column: B/S/H
-                let signal_letter = match signal.as_str() {
-                    "BUY" => "🟢",
-                    "SELL" => "🔴",
-                    _ => "H",
-                };
-
-                // Manually pad the fields for classic alignment
+        for (symbol, position, signal, return_pct, price, m, value) in symbol_data {
+            // Signal as a separate column: 🟢/🔴/🔸
+            let signal_letter = match signal.as_str() {
+                "BUY" => "🟢",
+                "SELL" => "🔴",
+                _ => "🔸",
+            };                // Manually pad the fields for classic alignment
                 let base_currency = symbol.split('/').next().unwrap();
                 let id = format!("{:<4}", base_currency.chars().take(4).collect::<String>());
                 // Symbol: left-justified, 4 chars
